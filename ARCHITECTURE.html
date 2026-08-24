@@ -1,0 +1,881 @@
+<title>Triage Agent Architecture</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --paper: #F3F5F6;
+    --paper-raised: #FFFFFF;
+    --ink: #14171B;
+    --mute: #565D64;
+    --mute-2: #7B8288;
+    --line: #D8DCDF;
+    --line-soft: #E6E9EA;
+    --signal: #A8672A;
+    --signal-soft: #F1E3D2;
+    --routed: #3F6B4A;
+    --routed-soft: #E4EEE6;
+    --review: #8A5A16;
+    --review-soft: #F5EBDA;
+    --failed: #9E3B2E;
+    --failed-soft: #F6E4E1;
+    --shadow: 0 1px 2px rgba(20, 23, 27, 0.04), 0 8px 24px rgba(20, 23, 27, 0.05);
+    --font-display: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+    --font-body: "IBM Plex Sans", -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper: #14171B;
+      --paper-raised: #1B1F24;
+      --ink: #E9EBEC;
+      --mute: #9CA3A9;
+      --mute-2: #7B8288;
+      --line: #2B3136;
+      --line-soft: #23282D;
+      --signal: #D68A3E;
+      --signal-soft: #382A18;
+      --routed: #74B586;
+      --routed-soft: #1C2A20;
+      --review: #D6A24A;
+      --review-soft: #302512;
+      --failed: #E17A65;
+      --failed-soft: #2E1D1A;
+      --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.35);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --paper: #14171B;
+    --paper-raised: #1B1F24;
+    --ink: #E9EBEC;
+    --mute: #9CA3A9;
+    --mute-2: #7B8288;
+    --line: #2B3136;
+    --line-soft: #23282D;
+    --signal: #D68A3E;
+    --signal-soft: #382A18;
+    --routed: #74B586;
+    --routed-soft: #1C2A20;
+    --review: #D6A24A;
+    --review-soft: #302512;
+    --failed: #E17A65;
+    --failed-soft: #2E1D1A;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.35);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--font-body);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  ::selection { background: var(--signal-soft); color: var(--ink); }
+
+  a { color: var(--signal); }
+  a:focus-visible, button:focus-visible, summary:focus-visible {
+    outline: 2px solid var(--signal);
+    outline-offset: 2px;
+  }
+
+  .shell {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 56px 32px 96px;
+    display: grid;
+    grid-template-columns: 200px minmax(0, 1fr);
+    gap: 56px;
+    align-items: start;
+  }
+
+  @media (max-width: 880px) {
+    .shell { grid-template-columns: 1fr; gap: 32px; padding: 32px 20px 64px; }
+  }
+
+  /* ---------- header ---------- */
+  .masthead {
+    grid-column: 1 / -1;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding-bottom: 40px;
+    margin-bottom: 8px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .eyebrow {
+    font-family: var(--font-display);
+    font-size: 11.5px;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--signal);
+  }
+
+  h1 {
+    font-family: var(--font-body);
+    font-weight: 700;
+    font-size: clamp(28px, 4vw, 42px);
+    line-height: 1.15;
+    margin: 0;
+    letter-spacing: -0.01em;
+    text-wrap: balance;
+    max-width: 18ch;
+  }
+
+  .dek {
+    font-size: 16.5px;
+    color: var(--mute);
+    max-width: 62ch;
+    margin: 0;
+  }
+
+  .stack-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 6px;
+  }
+
+  .chip {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    letter-spacing: 0.02em;
+    color: var(--mute);
+    background: var(--paper-raised);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    padding: 4px 9px;
+  }
+
+  /* ---------- toc ---------- */
+  .toc {
+    position: sticky;
+    top: 40px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+  }
+
+  .toc-label {
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--mute-2);
+    margin-bottom: 10px;
+  }
+
+  .toc a {
+    color: var(--mute);
+    text-decoration: none;
+    padding: 6px 0 6px 12px;
+    border-left: 2px solid var(--line);
+  }
+
+  .toc a:hover { color: var(--ink); border-left-color: var(--signal); }
+
+  @media (max-width: 880px) {
+    .toc { display: none; }
+  }
+
+  /* ---------- main content ---------- */
+  main { min-width: 0; display: flex; flex-direction: column; gap: 72px; }
+
+  section { scroll-margin-top: 32px; }
+
+  .section-head {
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+    margin-bottom: 8px;
+  }
+
+  .section-num {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    color: var(--mute-2);
+  }
+
+  h2 {
+    font-size: 23px;
+    font-weight: 700;
+    margin: 0;
+    letter-spacing: -0.005em;
+    text-wrap: balance;
+  }
+
+  .section-intro {
+    max-width: 74ch;
+    color: var(--mute);
+    font-size: 15px;
+    margin: 10px 0 28px;
+  }
+
+  .section-intro code, p code, li code {
+    font-family: var(--font-mono);
+    font-size: 0.88em;
+    background: var(--line-soft);
+    border-radius: 3px;
+    padding: 0.1em 0.4em;
+  }
+
+  /* ---------- diagram figures ---------- */
+  figure {
+    margin: 0;
+    background: var(--paper-raised);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    box-shadow: var(--shadow);
+    padding: 22px 22px 16px;
+  }
+
+  .diagram-scroll {
+    overflow-x: auto;
+  }
+
+  .diagram-scroll svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    min-width: 560px;
+    font-family: var(--font-mono);
+  }
+
+  figcaption {
+    font-size: 13px;
+    color: var(--mute);
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px solid var(--line-soft);
+  }
+
+  figcaption strong { color: var(--ink); font-weight: 600; }
+
+  /* ---------- structured-output example ---------- */
+  .code-json {
+    margin: 0;
+    padding: 16px 18px;
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    line-height: 1.75;
+    overflow-x: auto;
+    white-space: pre;
+  }
+
+  .code-json .k { color: var(--signal); }
+  .code-json .s { color: var(--routed); }
+  .code-json .c { color: var(--mute); font-style: italic; }
+
+  /* ---------- data model tables ---------- */
+  .schema-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+  }
+
+  @media (max-width: 720px) {
+    .schema-grid { grid-template-columns: 1fr; }
+  }
+
+  .schema-card {
+    background: var(--paper-raised);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  .schema-card > header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    background: var(--line-soft);
+    border-bottom: 1px solid var(--line);
+  }
+
+  .schema-card > header .name {
+    font-family: var(--font-mono);
+    font-weight: 600;
+    font-size: 13.5px;
+  }
+
+  .schema-card > header .count {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--mute);
+  }
+
+  .field-group-label {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--mute-2);
+    padding: 12px 16px 4px;
+  }
+
+  .field-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px 16px;
+    align-items: baseline;
+    padding: 5px 16px;
+    font-size: 13px;
+  }
+
+  .field-row .fname {
+    font-family: var(--font-mono);
+    color: var(--ink);
+  }
+
+  .field-row .ftype {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    color: var(--mute);
+    text-align: right;
+    white-space: nowrap;
+  }
+
+  .schema-card > footer {
+    padding: 10px 16px 14px;
+    font-size: 12.5px;
+    color: var(--mute);
+    border-top: 1px solid var(--line-soft);
+    margin-top: 6px;
+  }
+
+  /* ---------- status pills used inline in prose/diagrams ---------- */
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    font-weight: 500;
+    padding: 2px 8px;
+    border-radius: 999px;
+    line-height: 1.6;
+  }
+  .pill::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+  .pill-routed { background: var(--routed-soft); color: var(--routed); }
+  .pill-review { background: var(--review-soft); color: var(--review); }
+  .pill-failed { background: var(--failed-soft); color: var(--failed); }
+
+  footer.colophon {
+    grid-column: 1 / -1;
+    margin-top: 24px;
+    padding-top: 24px;
+    border-top: 1px solid var(--line);
+    font-size: 12.5px;
+    color: var(--mute-2);
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { scroll-behavior: auto !important; }
+  }
+
+  html { scroll-behavior: smooth; }
+</style>
+
+<div class="shell">
+  <header class="masthead">
+    <span class="eyebrow">System documentation</span>
+    <h1>How an enquiry moves through the system</h1>
+    <p class="dek">
+      Triage Agent classifies, enriches, and routes inbound client enquiries for a professional
+      services firm — replacing a manual triage step that used to take an analyst about eight
+      hours a week. This page traces the actual mechanism: what talks to what, what a request
+      passes through, and what changes state and when.
+    </p>
+    <div class="stack-chips">
+      <span class="chip">React · Vite</span>
+      <span class="chip">Flask</span>
+      <span class="chip">PostgreSQL</span>
+      <span class="chip">Claude API</span>
+      <span class="chip">Docker Compose</span>
+    </div>
+  </header>
+
+  <nav class="toc" aria-label="Section navigation">
+    <span class="toc-label">On this page</span>
+    <a href="#architecture">System architecture</a>
+    <a href="#lifecycle">Enquiry lifecycle</a>
+    <a href="#routing">How routing works</a>
+    <a href="#review">Review actions</a>
+    <a href="#retry">Retry &amp; failure</a>
+    <a href="#data-model">Data model</a>
+  </nav>
+
+  <main>
+    <!-- ============================================================ -->
+    <section id="architecture">
+      <div class="section-head">
+        <span class="section-num">01</span>
+        <h2>System architecture</h2>
+      </div>
+      <p class="section-intro">
+        Four moving parts and one hard rule: the intake request is <strong>synchronous</strong>
+        end to end. The browser's <code>POST /api/enquiries</code> doesn't return until
+        classification, routing, and the review-gate decision have all finished and a row is
+        saved — there's no job queue or polling in between.
+      </p>
+
+      <figure>
+        <div class="diagram-scroll">
+          <svg viewBox="0 0 900 380" role="img" aria-label="Browser sends a request to the Vite dev server, which proxies it to the Flask API. The Flask API calls the Claude API synchronously to classify the enquiry, then reads and writes Postgres, before returning one finished response to the browser.">
+            <defs>
+              <marker id="arrow" markerWidth="9" markerHeight="9" refX="7.5" refY="4.5" orient="auto">
+                <polygon points="0,0 9,4.5 0,9" fill="currentColor" />
+              </marker>
+              <marker id="arrowSignal" markerWidth="9" markerHeight="9" refX="7.5" refY="4.5" orient="auto">
+                <polygon points="0,0 9,4.5 0,9" fill="var(--signal)" />
+              </marker>
+            </defs>
+
+            <!-- nodes -->
+            <g font-family="var(--font-mono)">
+              <rect x="20" y="150" width="130" height="64" rx="6" fill="none" stroke="currentColor" stroke-width="1.3"/>
+              <text x="85" y="177" text-anchor="middle" font-size="13" font-weight="600">Browser</text>
+              <text x="85" y="195" text-anchor="middle" font-size="10.5" fill="var(--mute)">Queue / Submit</text>
+
+              <rect x="205" y="150" width="160" height="64" rx="6" fill="none" stroke="currentColor" stroke-width="1.3"/>
+              <text x="285" y="173" text-anchor="middle" font-size="13" font-weight="600">Vite dev server</text>
+              <text x="285" y="190" text-anchor="middle" font-size="10.5" fill="var(--mute)">proxies /api → api:5000</text>
+
+              <rect x="420" y="150" width="150" height="64" rx="6" fill="none" stroke="currentColor" stroke-width="1.6"/>
+              <text x="495" y="177" text-anchor="middle" font-size="13" font-weight="600">Flask API</text>
+              <text x="495" y="195" text-anchor="middle" font-size="10.5" fill="var(--mute)">pipeline.process()</text>
+
+              <rect x="650" y="40" width="200" height="64" rx="6" fill="none" stroke="currentColor" stroke-width="1.3"/>
+              <text x="750" y="66" text-anchor="middle" font-size="13" font-weight="600">Postgres</text>
+              <text x="750" y="84" text-anchor="middle" font-size="10.5" fill="var(--mute)">team · enquiry tables</text>
+
+              <rect x="650" y="266" width="200" height="64" rx="6" fill="none" stroke="var(--signal)" stroke-width="1.6"/>
+              <text x="750" y="292" text-anchor="middle" font-size="13" font-weight="600" fill="var(--signal)">Claude API</text>
+              <text x="750" y="310" text-anchor="middle" font-size="10.5" fill="var(--mute)">messages.parse()</text>
+            </g>
+
+            <!-- arrows -->
+            <g stroke="currentColor" stroke-width="1.3" fill="none">
+              <line x1="150" y1="182" x2="200" y2="182" marker-end="url(#arrow)"/>
+              <line x1="365" y1="182" x2="415" y2="182" marker-end="url(#arrow)"/>
+            </g>
+            <text x="175" y="172" text-anchor="middle" font-size="10">fetch()</text>
+            <text x="390" y="172" text-anchor="middle" font-size="10">HTTP</text>
+
+            <path d="M 545 155 C 610 120, 620 100, 645 78" stroke="currentColor" stroke-width="1.3" fill="none" marker-end="url(#arrow)"/>
+            <text x="612" y="105" text-anchor="middle" font-size="10">reads &amp; writes</text>
+
+            <path d="M 545 205 C 610 240, 620 260, 645 282" stroke="var(--signal)" stroke-width="1.5" fill="none" marker-end="url(#arrowSignal)"/>
+            <text x="618" y="255" text-anchor="middle" font-size="10" fill="var(--signal)">classify(enquiry)</text>
+
+            <path d="M 645 300 C 605 300, 585 260, 553 218" stroke="var(--signal)" stroke-width="1.5" fill="none" stroke-dasharray="3 3" marker-end="url(#arrowSignal)"/>
+            <text x="640" y="330" text-anchor="middle" font-size="10" fill="var(--signal)">TriageResult (≤1 retry)</text>
+
+            <text x="495" y="235" text-anchor="middle" font-size="10.5" fill="var(--mute-2)" font-style="italic">blocks until classify → route → gate → persist all finish</text>
+          </svg>
+        </div>
+        <figcaption>
+          <strong>The one thing to notice:</strong> Flask never responds to the browser until the
+          round trip to Claude (dashed return arrow) and the Postgres write both complete — there
+          is no background worker or queue between the two solid HTTP hops on the left.
+        </figcaption>
+      </figure>
+    </section>
+
+    <!-- ============================================================ -->
+    <section id="lifecycle">
+      <div class="section-head">
+        <span class="section-num">02</span>
+        <h2>Enquiry lifecycle</h2>
+      </div>
+      <p class="section-intro">
+        Every submission runs through the same four stages. Where it lands afterward —
+        <span class="pill pill-routed">routed</span>,
+        <span class="pill pill-review">needs review</span>, or
+        <span class="pill pill-failed">failed</span> — depends on two decision points, not one
+        blended score.
+      </p>
+
+      <figure>
+        <div class="diagram-scroll">
+          <svg viewBox="0 0 780 560" role="img" aria-label="An enquiry is validated, then classified by Claude. If classification fails twice it becomes status failed with no team assigned. On success, a rules engine picks a team, then a gate checks confidence, flags, and runner-up margin: if any condition trips, status becomes needs review with a provisional team; otherwise status becomes routed.">
+            <defs>
+              <marker id="arrow2" markerWidth="9" markerHeight="9" refX="7.5" refY="4.5" orient="auto">
+                <polygon points="0,0 9,4.5 0,9" fill="currentColor" />
+              </marker>
+              <marker id="arrowFailed" markerWidth="9" markerHeight="9" refX="7.5" refY="4.5" orient="auto">
+                <polygon points="0,0 9,4.5 0,9" fill="var(--failed)" />
+              </marker>
+            </defs>
+
+            <g font-family="var(--font-mono)" text-anchor="middle">
+              <rect x="290" y="16" width="200" height="52" rx="6" fill="none" stroke="currentColor" stroke-width="1.3"/>
+              <text x="390" y="47" font-size="13" font-weight="600">Client submits</text>
+
+              <rect x="270" y="102" width="240" height="52" rx="6" fill="none" stroke="currentColor" stroke-width="1.3"/>
+              <text x="390" y="126" font-size="12.5" font-weight="600">Validate (Pydantic)</text>
+              <text x="390" y="142" font-size="10" fill="var(--mute)">description ≥ 40 chars, valid enums</text>
+
+              <rect x="270" y="188" width="240" height="56" rx="6" fill="none" stroke="var(--signal)" stroke-width="1.6"/>
+              <text x="390" y="212" font-size="12.5" font-weight="600" fill="var(--signal)">classify() via Claude</text>
+              <text x="390" y="229" font-size="10" fill="var(--mute)">1 retry on error / truncation</text>
+
+              <!-- failed branch -->
+              <rect x="30" y="270" width="190" height="70" rx="6" fill="var(--failed-soft)" stroke="var(--failed)" stroke-width="1.3"/>
+              <text x="125" y="296" font-size="12.5" font-weight="600" fill="var(--failed)">failed</text>
+              <text x="125" y="313" font-size="10" fill="var(--mute)">no team · error_message set</text>
+              <text x="125" y="328" font-size="10" fill="var(--mute)">retryable from the Queue</text>
+
+              <rect x="270" y="296" width="240" height="52" rx="6" fill="none" stroke="currentColor" stroke-width="1.3"/>
+              <text x="390" y="320" font-size="12.5" font-weight="600">route()</text>
+              <text x="390" y="336" font-size="10" fill="var(--mute)">first matching rule, by priority</text>
+
+              <rect x="255" y="382" width="270" height="66" rx="6" fill="none" stroke="currentColor" stroke-width="1.3"/>
+              <text x="390" y="404" font-size="12.5" font-weight="600">Gate</text>
+              <text x="390" y="420" font-size="10" fill="var(--mute)">confidence &lt; 0.75  ·  any flag  ·</text>
+              <text x="390" y="434" font-size="10" fill="var(--mute)">runner-up margin ≤ 0.15</text>
+
+              <!-- outcomes -->
+              <rect x="150" y="484" width="210" height="60" rx="6" fill="var(--routed-soft)" stroke="var(--routed)" stroke-width="1.3"/>
+              <text x="255" y="508" font-size="12.5" font-weight="600" fill="var(--routed)">routed</text>
+              <text x="255" y="524" font-size="10" fill="var(--mute)">none of the above true</text>
+
+              <rect x="420" y="484" width="210" height="60" rx="6" fill="var(--review-soft)" stroke="var(--review)" stroke-width="1.3"/>
+              <text x="525" y="508" font-size="12.5" font-weight="600" fill="var(--review)">needs_review</text>
+              <text x="525" y="524" font-size="10" fill="var(--mute)">team already proposed</text>
+            </g>
+
+            <g stroke="currentColor" stroke-width="1.3" fill="none">
+              <line x1="390" y1="68" x2="390" y2="97" marker-end="url(#arrow2)"/>
+              <line x1="390" y1="154" x2="390" y2="183" marker-end="url(#arrow2)"/>
+              <line x1="390" y1="244" x2="390" y2="291" marker-end="url(#arrow2)"/>
+              <line x1="390" y1="348" x2="390" y2="377" marker-end="url(#arrow2)"/>
+            </g>
+            <path d="M270 226 C 200 250, 160 258, 125 265" stroke="var(--failed)" stroke-width="1.4" fill="none" marker-end="url(#arrowFailed)"/>
+            <text x="185" y="252" font-size="10" fill="var(--failed)" font-family="var(--font-mono)">2nd failure</text>
+
+            <path d="M355 448 C 320 460, 290 470, 268 479" stroke="var(--routed)" stroke-width="1.3" fill="none" marker-end="url(#arrow2)"/>
+            <path d="M425 448 C 460 460, 495 470, 517 479" stroke="var(--review)" stroke-width="1.3" fill="none" marker-end="url(#arrow2)"/>
+            <text x="300" y="465" font-size="10" font-family="var(--font-mono)" fill="var(--routed)">no</text>
+            <text x="482" y="465" font-size="10" font-family="var(--font-mono)" fill="var(--review)">yes</text>
+          </svg>
+        </div>
+        <figcaption>
+          <strong>Routing happens before the gate, not after.</strong> A <code>needs_review</code>
+          row already has a team attached — the UI shows it greyed as "proposed" — so approving it
+          is a one-click confirmation of a concrete proposal, not an assignment from scratch.
+        </figcaption>
+      </figure>
+    </section>
+
+    <!-- ============================================================ -->
+    <section id="routing">
+      <div class="section-head">
+        <span class="section-num">03</span>
+        <h2>How routing works</h2>
+      </div>
+      <p class="section-intro">
+        <code>router.route()</code> never calls Claude and never touches Postgres. It's a pure
+        function over two things: the classifier's structured output, and the enquiry's own
+        submitted fields. One example, threaded through both — an enquiry from a manufacturing
+        client, wanting help preparing compliance documentation, filed as "within a month" rather
+        than urgent.
+      </p>
+
+      <figure>
+        <pre class="code-json"><span class="c">// client.messages.parse(model, system, messages, output_format=TriageResult)</span>
+<span class="c">// → response.parsed_output, one call, ≤1 retry</span>
+{
+  <span class="k">"service_line"</span>: <span class="s">"risk_compliance"</span>,
+  <span class="k">"complexity"</span>: <span class="s">"complex"</span>,
+  <span class="k">"confidence"</span>: 0.79,
+  <span class="k">"rationale"</span>: <span class="s">"Preparing documentation for a compliance review across
+    multiple facilities is core risk_compliance work; the scope across
+    sites and lack of urgency suggest a full workstream, not a quick check."</span>,
+  <span class="k">"runner_up_service_line"</span>: <span class="s">"technology_transformation"</span>,
+  <span class="k">"runner_up_confidence"</span>: 0.35,
+  <span class="k">"key_signals"</span>: [<span class="s">"compliance documentation"</span>, <span class="s">"across our facilities"</span>],
+  <span class="k">"flags"</span>: []
+}</pre>
+        <figcaption>
+          <strong>Only <code>service_line</code> and <code>complexity</code> go to the router</strong>
+          — <code>confidence</code>, <code>flags</code>, and the confidence/runner-up margin go to
+          the review gate instead (<a href="#lifecycle">§02</a>). Every enum-shaped field arrives
+          as a plain string, not a validated enum: structured output can still drift in casing
+          ("Risk_Compliance"), so <code>_normalize_enum()</code> lowercases and reconciles
+          separators before anything downstream trusts it.
+        </figcaption>
+      </figure>
+
+      <figure style="margin-top:20px;">
+        <div class="diagram-scroll">
+          <svg viewBox="0 0 860 610" role="img" aria-label="Routing context combines service_line and complexity from the classifier with urgency and industry from the submitted enquiry. Rules are checked in ascending priority order. The immediate-complex-risk-compliance rule fails because urgency is within a month, not immediate. The healthcare rule fails because industry is manufacturing, not healthcare. The risk and compliance catch all rule only constrains service_line, so it matches, assigning the Risk and Compliance team.">
+            <defs>
+              <marker id="arrowR" markerWidth="9" markerHeight="9" refX="7.5" refY="4.5" orient="auto">
+                <polygon points="0,0 9,4.5 0,9" fill="currentColor"/>
+              </marker>
+            </defs>
+
+            <!-- context -->
+            <g font-family="var(--font-mono)">
+              <rect x="30" y="10" width="380" height="70" rx="6" fill="var(--signal-soft)" stroke="var(--signal)" stroke-width="1.3"/>
+              <text x="46" y="30" font-size="10" font-weight="600" fill="var(--signal)">FROM THE CLASSIFIER</text>
+              <text x="46" y="50" font-size="12">service_line: risk_compliance</text>
+              <text x="46" y="66" font-size="12">complexity: complex</text>
+
+              <rect x="450" y="10" width="380" height="70" rx="6" fill="none" stroke="var(--line)" stroke-width="1.3"/>
+              <text x="466" y="30" font-size="10" font-weight="600" fill="var(--mute-2)">FROM THE SUBMISSION</text>
+              <text x="466" y="50" font-size="12">urgency: within_month</text>
+              <text x="466" y="66" font-size="12">industry: manufacturing</text>
+            </g>
+
+            <path d="M220 80 L220 100 M640 80 L640 100 M220 100 L640 100 M430 100 L430 118" stroke="currentColor" stroke-width="1.3" fill="none" marker-end="url(#arrowR)"/>
+
+            <!-- rule 1: miss -->
+            <g font-family="var(--font-mono)">
+              <rect x="60" y="128" width="740" height="66" rx="6" fill="none" stroke="var(--line)" stroke-width="1.3"/>
+              <text x="78" y="150" font-size="11" fill="var(--mute-2)">priority 1</text>
+              <text x="78" y="168" font-size="13" font-weight="600">Immediate complex risk &amp; compliance</text>
+              <text x="78" y="184" font-size="10.5" fill="var(--mute)">needs service_line=risk_compliance · complexity=complex · urgency=immediate</text>
+              <text x="740" y="166" font-size="18" fill="var(--failed)" text-anchor="middle">✕</text>
+              <text x="740" y="182" font-size="9.5" fill="var(--failed)" text-anchor="middle">urgency miss</text>
+            </g>
+
+            <line x1="430" y1="194" x2="430" y2="216" stroke="currentColor" stroke-width="1.3" marker-end="url(#arrowR)"/>
+
+            <!-- rule 2: miss -->
+            <g font-family="var(--font-mono)">
+              <rect x="60" y="224" width="740" height="66" rx="6" fill="none" stroke="var(--line)" stroke-width="1.3"/>
+              <text x="78" y="246" font-size="11" fill="var(--mute-2)">priority 2</text>
+              <text x="78" y="264" font-size="13" font-weight="600">Healthcare risk &amp; compliance</text>
+              <text x="78" y="280" font-size="10.5" fill="var(--mute)">needs service_line=risk_compliance · industry=healthcare</text>
+              <text x="740" y="262" font-size="18" fill="var(--failed)" text-anchor="middle">✕</text>
+              <text x="740" y="278" font-size="9.5" fill="var(--failed)" text-anchor="middle">industry miss</text>
+            </g>
+
+            <line x1="430" y1="290" x2="430" y2="312" stroke="currentColor" stroke-width="1.3" marker-end="url(#arrowR)"/>
+            <text x="430" y="308" font-size="10.5" fill="var(--mute-2)" text-anchor="middle" font-style="italic" font-family="var(--font-mono)">⋮ rules for other service lines — skipped, they fail on service_line alone</text>
+
+            <line x1="430" y1="318" x2="430" y2="340" stroke="currentColor" stroke-width="1.3" marker-end="url(#arrowR)"/>
+
+            <!-- rule 90: match -->
+            <g font-family="var(--font-mono)">
+              <rect x="60" y="348" width="740" height="66" rx="6" fill="var(--routed-soft)" stroke="var(--routed)" stroke-width="1.6"/>
+              <text x="78" y="370" font-size="11" fill="var(--routed)">priority 90</text>
+              <text x="78" y="388" font-size="13" font-weight="600" fill="var(--routed)">Risk &amp; compliance catch-all</text>
+              <text x="78" y="404" font-size="10.5" fill="var(--mute)">needs service_line=risk_compliance — nothing else constrained</text>
+              <text x="740" y="386" font-size="18" fill="var(--routed)" text-anchor="middle">✓</text>
+              <text x="740" y="402" font-size="9.5" fill="var(--routed)" text-anchor="middle">match</text>
+            </g>
+
+            <line x1="430" y1="414" x2="430" y2="436" stroke="var(--routed)" stroke-width="1.5" marker-end="url(#arrowR)"/>
+
+            <!-- outcome -->
+            <g font-family="var(--font-mono)" text-anchor="middle">
+              <rect x="230" y="444" width="400" height="70" rx="6" fill="none" stroke="var(--routed)" stroke-width="1.6"/>
+              <text x="430" y="468" font-size="13" font-weight="600" fill="var(--routed)">team = Risk &amp; Compliance Team</text>
+              <text x="430" y="488" font-size="11" fill="var(--mute)">matched_rule = "Risk &amp; compliance catch-all"</text>
+            </g>
+
+            <text x="430" y="546" text-anchor="middle" font-family="var(--font-mono)" font-size="10.5" fill="var(--mute-2)" font-style="italic">if every rule misses: falls back to the is_default team, matched_rule = null</text>
+          </svg>
+        </div>
+        <figcaption>
+          <strong>Order and partial matches are the whole mechanism.</strong> Rules are tried
+          lowest-priority-number first; a rule only checks the keys it names, so the catch-all at
+          priority 90 matches almost anything with the right <code>service_line</code> — which is
+          exactly why the more specific rules have to sit at lower priority numbers to get first
+          refusal.
+        </figcaption>
+      </figure>
+    </section>
+
+    <!-- ============================================================ -->
+    <section id="review">
+      <div class="section-head">
+        <span class="section-num">04</span>
+        <h2>Review actions</h2>
+      </div>
+      <p class="section-intro">
+        A reviewer acting on one <span class="pill pill-review">needs_review</span> enquiry has
+        three options. Each mutates a different, specific set of fields — there's no shared
+        "review" record, just the one enquiry row changing in place.
+      </p>
+
+      <figure>
+        <div class="diagram-scroll">
+          <svg viewBox="0 0 900 400" role="img" aria-label="From one needs_review enquiry with a proposed team, a reviewer can approve, correct, or close it. Approve sets status routed and records the reviewer, leaving classification and team unchanged. Correct overwrites service line and or complexity, sets was_corrected true, and re-routes to a matching team automatically if no team was explicitly chosen. Close sets status closed and records the reviewer, leaving classification untouched.">
+            <defs>
+              <marker id="arrow3" markerWidth="9" markerHeight="9" refX="7.5" refY="4.5" orient="auto">
+                <polygon points="0,0 9,4.5 0,9" fill="currentColor"/>
+              </marker>
+            </defs>
+
+            <g font-family="var(--font-mono)" text-anchor="middle">
+              <rect x="320" y="14" width="260" height="60" rx="6" fill="var(--review-soft)" stroke="var(--review)" stroke-width="1.4"/>
+              <text x="450" y="38" font-size="12.5" font-weight="600" fill="var(--review)">needs_review enquiry</text>
+              <text x="450" y="55" font-size="10" fill="var(--mute)">team already proposed</text>
+            </g>
+
+            <g stroke="currentColor" stroke-width="1.3" fill="none">
+              <path d="M370 74 C 260 110, 160 130, 130 152" marker-end="url(#arrow3)"/>
+              <path d="M450 74 L 450 152" marker-end="url(#arrow3)"/>
+              <path d="M530 74 C 640 110, 740 130, 770 152" marker-end="url(#arrow3)"/>
+            </g>
+            <text x="215" y="112" font-size="11" font-family="var(--font-mono)">Approve</text>
+            <text x="465" y="112" font-size="11" font-family="var(--font-mono)">Correct</text>
+            <text x="680" y="112" font-size="11" font-family="var(--font-mono)">Close</text>
+
+            <g font-family="var(--font-mono)" font-size="10.5">
+              <!-- approve outcome -->
+              <rect x="20" y="160" width="220" height="152" rx="6" fill="var(--paper)" stroke="var(--line)" stroke-width="1.3"/>
+              <text x="130" y="182" text-anchor="middle" font-size="12" font-weight="600" fill="var(--routed)">→ routed</text>
+              <text x="36" y="204">status = routed</text>
+              <text x="36" y="222">reviewed = true</text>
+              <text x="36" y="240">reviewed_by = name</text>
+              <text x="36" y="258" fill="var(--mute)">was_corrected = false</text>
+              <text x="36" y="276" fill="var(--mute)">team, classification</text>
+              <text x="36" y="292" fill="var(--mute)">unchanged</text>
+
+              <!-- correct outcome -->
+              <rect x="335" y="160" width="230" height="152" rx="6" fill="var(--paper)" stroke="var(--line)" stroke-width="1.3"/>
+              <text x="450" y="182" text-anchor="middle" font-size="12" font-weight="600" fill="var(--routed)">→ routed</text>
+              <text x="351" y="204">status = routed</text>
+              <text x="351" y="222">was_corrected = true</text>
+              <text x="351" y="240">service_line / complexity</text>
+              <text x="351" y="256">overwritten</text>
+              <text x="351" y="276" fill="var(--mute)">team re-routed to match,</text>
+              <text x="351" y="292" fill="var(--mute)">unless one was chosen</text>
+
+              <!-- close outcome -->
+              <rect x="660" y="160" width="220" height="152" rx="6" fill="var(--paper)" stroke="var(--line)" stroke-width="1.3"/>
+              <text x="770" y="182" text-anchor="middle" font-size="12" font-weight="600" fill="var(--failed)">→ closed</text>
+              <text x="676" y="204">status = closed</text>
+              <text x="676" y="222">reviewed = true</text>
+              <text x="676" y="240">reviewed_by = name</text>
+              <text x="676" y="258" fill="var(--mute)">classification and team</text>
+              <text x="676" y="274" fill="var(--mute)">left exactly as the model</text>
+              <text x="676" y="290" fill="var(--mute)">left them</text>
+            </g>
+          </svg>
+        </div>
+        <figcaption>
+          <strong>Correcting the service line re-routes automatically.</strong> If a reviewer
+          changes <code>service_line</code> or <code>complexity</code> without also picking a
+          team, <code>router.route()</code> runs again against the corrected values — an enquiry
+          never ends up "corrected" but still pointed at the team that matched its old, wrong
+          classification.
+        </figcaption>
+      </figure>
+    </section>
+
+    <!-- ============================================================ -->
+    <section id="retry">
+      <div class="section-head">
+        <span class="section-num">05</span>
+        <h2>Retry &amp; failure handling</h2>
+      </div>
+      <p class="section-intro">
+        A <span class="pill pill-failed">failed</span> row is a client-facing problem, not a log
+        line — it stays visible in the Queue's Failed tab with the actual <code>error_message</code>
+        (a refusal, a truncated response, or an unreachable API), and a <strong>Retry</strong>
+        button re-enters the same pipeline from the top of
+        <a href="#lifecycle">the lifecycle above</a>: classify → route → gate, against the same
+        stored submission, updating the row in place rather than creating a new one. There's no
+        separate recovery code path — retry <em>is</em> the ordinary pipeline, just re-run on
+        demand instead of once at submission time.
+      </p>
+    </section>
+
+    <!-- ============================================================ -->
+    <section id="data-model">
+      <div class="section-head">
+        <span class="section-num">06</span>
+        <h2>Data model</h2>
+      </div>
+      <p class="section-intro">
+        Two tables, no history tables. Corrections overwrite fields in place — <code>was_corrected</code>
+        and <code>reviewed_by</code> record <em>that</em> and <em>by whom</em> a row changed, not
+        a full before/after log.
+      </p>
+
+      <div class="schema-grid">
+        <div class="schema-card">
+          <header><span class="name">team</span><span class="count">6 rows + 1 default</span></header>
+          <div class="field-row"><span class="fname">id</span><span class="ftype">pk</span></div>
+          <div class="field-row"><span class="fname">name</span><span class="ftype">text</span></div>
+          <div class="field-row"><span class="fname">service_line</span><span class="ftype">enum, null</span></div>
+          <div class="field-row"><span class="fname">lead_name</span><span class="ftype">text</span></div>
+          <div class="field-row"><span class="fname">lead_email</span><span class="ftype">text</span></div>
+          <div class="field-row"><span class="fname">is_default</span><span class="ftype">bool</span></div>
+          <footer>Seeded from Python, not admin-editable. Exactly one row has <code>is_default</code> — the catch-all "Intake Desk."</footer>
+        </div>
+
+        <div class="schema-card">
+          <header><span class="name">enquiry</span><span class="count">27 columns</span></header>
+
+          <div class="field-group-label">Submitted by the client</div>
+          <div class="field-row"><span class="fname">contact_name, contact_email</span><span class="ftype">text</span></div>
+          <div class="field-row"><span class="fname">company_name</span><span class="ftype">text</span></div>
+          <div class="field-row"><span class="fname">industry, industry_other</span><span class="ftype">enum, text?</span></div>
+          <div class="field-row"><span class="fname">company_size, urgency</span><span class="ftype">enum</span></div>
+          <div class="field-row"><span class="fname">description</span><span class="ftype">text</span></div>
+
+          <div class="field-group-label">Written by classify → route → gate</div>
+          <div class="field-row"><span class="fname">service_line, complexity</span><span class="ftype">enum, null</span></div>
+          <div class="field-row"><span class="fname">confidence, rationale</span><span class="ftype">numeric, text</span></div>
+          <div class="field-row"><span class="fname">runner_up_service_line</span><span class="ftype">enum, null</span></div>
+          <div class="field-row"><span class="fname">key_signals, flags</span><span class="ftype">jsonb[]</span></div>
+          <div class="field-row"><span class="fname">status, team_id, matched_rule</span><span class="ftype">enum, fk, text?</span></div>
+          <div class="field-row"><span class="fname">routed_at, error_message</span><span class="ftype">timestamp?, text?</span></div>
+
+          <div class="field-group-label">Written by a human review</div>
+          <div class="field-row"><span class="fname">reviewed, reviewed_by</span><span class="ftype">bool, text?</span></div>
+          <div class="field-row"><span class="fname">was_corrected</span><span class="ftype">bool</span></div>
+
+          <footer>No Alembic — schema changes recreate the Postgres volume. Acceptable before real data accumulates.</footer>
+        </div>
+      </div>
+    </section>
+
+    <footer class="colophon">
+      <span>Triage Agent — internal architecture reference</span>
+      <span>Reflects the pipeline in <code>backend/app/services/</code> as built</span>
+    </footer>
+  </main>
+</div>
+
+<script>
+  // Native href="#id" navigation is unreliable inside sandboxed embeds
+  // (e.g. the artifact viewer's iframe), so the TOC scrolls explicitly
+  // instead of relying on the browser's default anchor handling.
+  document.querySelectorAll('.toc a[href^="#"]').forEach((link) => {
+    link.addEventListener('click', (event) => {
+      const target = document.getElementById(link.getAttribute('href').slice(1));
+      if (!target) return;
+      event.preventDefault();
+      target.scrollIntoView({
+        behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
+        block: 'start',
+      });
+    });
+  });
+</script>
