@@ -43,7 +43,12 @@ def main() -> None:
     complexity_correct = 0
 
     for row in rows:
-        payload = EnquiryCreate(
+        # model_construct bypasses validation: the golden set deliberately
+        # includes a below-floor description (row 5) to test insufficient-
+        # information handling, which EnquiryCreate's 40-char floor -- a
+        # guardrail for the live intake form, not the classifier -- would
+        # otherwise reject before classify() ever saw it.
+        payload = EnquiryCreate.model_construct(
             contact_name="Eval",
             contact_email="eval@example.com",
             company_name="Eval Co",

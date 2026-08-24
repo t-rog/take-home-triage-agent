@@ -374,6 +374,38 @@
   .pill-review { background: var(--review-soft); color: var(--review); }
   .pill-failed { background: var(--failed-soft); color: var(--failed); }
 
+  /* ---------- model comparison table ---------- */
+  .metric-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13.5px;
+  }
+
+  .metric-table th, .metric-table td {
+    padding: 10px 14px;
+    text-align: left;
+    border-bottom: 1px solid var(--line-soft);
+  }
+
+  .metric-table th {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--mute-2);
+    background: var(--line-soft);
+  }
+
+  .metric-table th.num, .metric-table td.num {
+    font-family: var(--font-mono);
+    text-align: right;
+  }
+
+  .metric-table tr:last-child td { border-bottom: none; }
+  .metric-table td.flag-bad { color: var(--failed); font-weight: 600; }
+  .metric-table td.flag-good { color: var(--routed); font-weight: 600; }
+
   footer.colophon {
     grid-column: 1 / -1;
     margin-top: 24px;
@@ -421,6 +453,7 @@
     <a href="#review">Review actions</a>
     <a href="#retry">Retry &amp; failure</a>
     <a href="#data-model">Data model</a>
+    <a href="#model-selection">Model selection</a>
   </nav>
 
   <main>
@@ -854,6 +887,48 @@
           <footer>No Alembic — schema changes recreate the Postgres volume. Acceptable before real data accumulates.</footer>
         </div>
       </div>
+    </section>
+
+    <!-- ============================================================ -->
+    <section id="model-selection">
+      <div class="section-head">
+        <span class="section-num">07</span>
+        <h2>Model selection</h2>
+      </div>
+      <p class="section-intro">
+        <code>MODEL_ID</code> is a plain config value — swapping the classification model needs no
+        code change. Whether a cheaper model is actually safe to swap in isn't a guess, though: it's
+        answered by running the same eval harness (<code>backend/evals/run_eval.py</code> against
+        <code>golden.jsonl</code>) with <code>MODEL_ID</code> overridden, and comparing both accuracy
+        and how trustworthy the confidence score stays.
+      </p>
+
+      <figure>
+        <table class="metric-table">
+          <thead>
+            <tr><th>Metric</th><th class="num">Sonnet 5</th><th class="num">Haiku 4.5</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Service line accuracy</td><td class="num">19/21 (90%)</td><td class="num">17/21 (81%)</td></tr>
+            <tr><td>Complexity accuracy</td><td class="num">19/21 (90%)</td><td class="num">17/21 (81%)</td></tr>
+            <tr><td>Mean confidence, correct</td><td class="num">0.75 (n=19)</td><td class="num">0.84 (n=17)</td></tr>
+            <tr><td>Mean confidence, <strong>incorrect</strong></td><td class="num flag-good">0.56 (n=2)</td><td class="num flag-bad">0.79 (n=4)</td></tr>
+          </tbody>
+        </table>
+        <figcaption>
+          <strong>The gap that matters isn't accuracy — it's whether confidence stays trustworthy.</strong>
+          <code>CONFIDENCE_THRESHOLD</code> (currently 0.75) only works as a safety net if a low score
+          reliably means "have a human check this." With Sonnet 5, every wrong classification in the
+          eval set scored below the threshold, so nothing incorrect reached
+          <span class="pill pill-routed">routed</span> without a review. With Haiku 4.5, wrong
+          classifications averaged <strong>0.79</strong> — above the threshold — including a real miss
+          (<code>data_analytics</code> predicted as <code>risk_compliance</code> at 0.78 confidence)
+          that would have gone straight to <span class="pill pill-routed">routed</span> unreviewed. A
+          cheaper model would need its own threshold, re-tuned against its own error distribution — not
+          a smaller version of the same 0.75. (n is small — 21 rows — so this is a directional signal,
+          not a final verdict.)
+        </figcaption>
+      </figure>
     </section>
 
     <footer class="colophon">
